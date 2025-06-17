@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>キーワード含有チェッカー</title>
+    <style>
+        body {
+            font-family: 'Hiragino Sans', 'Meiryo', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        textarea {
+            min-height: 150px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #downloadBtn {
+            background-color: #2196F3;
+            display: none;
+        }
+        #downloadBtn:hover {
+            background-color: #0b7dda;
+        }
+        #clipboardBtn {
+            background-color: #FF9800;
+            display: none;
+        }
+        #clipboardBtn:hover {
+            background-color: #e68900;
+        }
+        .threshold-input {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        .threshold-input input {
+            width: 60px;
+            margin: 0 10px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .results-table th, .results-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+        .results-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .results-table th:first-child {
+            background-color: #e8e8e8;
+            font-weight: bold;
+            text-align: left;
+            min-width: 150px;
+        }
+        .results-table th:last-child {
+            background-color: #fff3cd;
+            font-weight: bold;
+        }
+        .results-table td:last-child {
+            background-color: #fff3cd;
+            font-weight: bold;
+            color: #856404;
+        }
+        .match {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .no-match {
+            color: #f44336;
+        }
+        .error {
+            color: #f44336;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #ffebee;
+            border-radius: 5px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Google検索結果 キーワード含有チェッカー</h1>
+        
+        <div class="input-group">
+            <label for="searchKeyword">調査キーワード</label>
+            <input type="text" id="searchKeyword" placeholder="Google検索するキーワードを入力">
+        </div>
+        
+        <div class="input-group">
+            <label for="containKeywords">含有キーワード（1行に1単語）</label>
+            <textarea id="containKeywords" placeholder="チェックしたいキーワードを改行区切りで入力&#10;例:&#10;Python&#10;プログラミング&#10;初心者"></textarea>
+        </div>
+        
+        <button id="searchBtn" onclick="performSearch()">検索実行</button>
+        <button id="downloadBtn" onclick="downloadCSV()">CSV ダウンロード</button>
+        <button id="clipboardBtn" onclick="showThresholdInput()">キーワード抽出</button>
+        
+        <div class="threshold-input" id="thresholdInput">
+            <label>含有サイト数が
+                <input type="number" id="threshold" value="3" min="1" max="10">
+                以上のキーワードをクリップボードにコピー
+            </label>
+            <button onclick="copyToClipboard()">コピー実行</button>
+        </div>
+        
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>検索中... しばらくお待ちください</p>
+        </div>
+        
+        <div class="error" id="errorMsg"></div>
+        
+        <div id="resultsContainer"></div>
+    </div>
+
+    <script>
+        let currentUrlResults = null;
+        let currentKeywords = null;
+        let currentKeywordCounts = null;
+
+        function performSearch() {
+            const searchKeyword = document.getElementById('searchKeyword').value.trim();
+            const containKeywords = document.getElementById('containKeywords').value.trim();
+            
+            if (!searchKeyword || !containKeywords) {
+                showError('調査キーワードと含有キーワードを両方入力してください。');
+                return;
+            }
+            
+            document.getElementById('searchBtn').disabled = true;
+            document.querySelector('.loading').style.display = 'block';
+            document.getElementById('errorMsg').style.display = 'none';
+            document.getElementById('resultsContainer').innerHTML = '';
+            document.getElementById('downloadBtn').style.display = 'none';
+            document.getElementById('clipboardBtn').style.display = 'none';
+            document.getElementById('thresholdInput').style.display = 'none';
+            
+            fetch('/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    search_keyword: searchKeyword,
+                    contain_keywords: containKeywords
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.querySelector('.loading').style.display = 'none';
+                document.getElementById('searchBtn').disabled = false;
+                
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    currentUrlResults = data.url_results;
+                    currentKeywords = data.keywords;
+                    currentKeywordCounts = data.keyword_counts;
+                    displayResults(data.url_results, data.keywords, data.keyword_counts, data.urls);
+                    document.getElementById('downloadBtn').style.display = 'inline-block';
+                    document.getElementById('clipboardBtn').style.display = 'inline-block';
+                }
+            })
+            .catch(error => {
+                document.querySelector('.loading').style.display = 'none';
+                document.getElementById('searchBtn').disabled = false;
+                showError('エラーが発生しました: ' + error);
+            });
+        }
+        
+        function displayResults(urlResults, keywords, keywordCounts, urls) {
+            let html = '<table class="results-table">';
+            html += '<tr><th>キーワード</th>';
+            
+            urls.forEach(url => {
+                html += `<th title="${url}">${url}</th>`;
+            });
+            html += '<th>含有サイト数</th></tr>';
+            
+            keywords.forEach(keyword => {
+                html += '<tr>';
+                html += `<td>${keyword}</td>`;
+                
+                urls.forEach(url => {
+                    const value = urlResults[url][keyword];
+                    const className = value === '○' ? 'match' : 'no-match';
+                    html += `<td class="${className}">${value}</td>`;
+                });
+                
+                html += `<td>${keywordCounts[keyword]}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</table>';
+            document.getElementById('resultsContainer').innerHTML = html;
+        }
+        
+        function downloadCSV() {
+            if (!currentUrlResults || !currentKeywords) {
+                showError('ダウンロードするデータがありません。');
+                return;
+            }
+            
+            fetch('/download_csv', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    url_results: currentUrlResults,
+                    keywords: currentKeywords,
+                    keyword_counts: currentKeywordCounts
+                })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'keyword_analysis_results.csv';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            })
+            .catch(error => {
+                showError('ダウンロードエラー: ' + error);
+            });
+        }
+        
+        function showThresholdInput() {
+            document.getElementById('thresholdInput').style.display = 'block';
+        }
+        
+        function copyToClipboard() {
+            const threshold = parseInt(document.getElementById('threshold').value);
+            const filteredKeywords = currentKeywords.filter(keyword => 
+                currentKeywordCounts[keyword] >= threshold
+            );
+            
+            if (filteredKeywords.length === 0) {
+                showError(`含有サイト数が${threshold}以上のキーワードがありません。`);
+                return;
+            }
+            
+            const text = filteredKeywords.join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                alert(`${filteredKeywords.length}個のキーワードをクリップボードにコピーしました。`);
+            }).catch(err => {
+                showError('クリップボードへのコピーに失敗しました: ' + err);
+            });
+        }
+        
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
